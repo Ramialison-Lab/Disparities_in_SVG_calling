@@ -1,0 +1,154 @@
+---
+title: "Convert csvs from Scanpy to Seurat object"
+author: Natalie Charitakis
+---
+
+```{r}
+library(Seurat)
+library(stringr)
+```
+
+##Load in respective csvs
+
+
+```{r}
+obs <- read.csv('obs.csv')
+var <- read.csv('var.csv')
+X <- read.csv('X.csv', header=FALSE)
+#delete first row of X dataframe
+#colnames(X) <- NULL
+X <- t(X)
+#Add in numbers of names for the spot
+colnames(X) <- 0:3029
+```
+##Generate metadata object to feed into Seurat object
+```{r}
+#get fake cell barcodes
+cell_barcodes <- colnames(X)
+
+#need get list of Orig.ident
+orig.ident <- replicate(3030, "ff_breast_cancer")
+
+#get number of counts per cell
+nCount_RNA <- obs["n_counts"]
+
+#get nFeature
+nFeature_RNA <- obs["n_genes"]
+
+#% MT
+percent.mt <- obs["pct_counts_mt"]
+
+#only extract clusters once as this will be populated twice in metadata
+seurat_clusters <- obs["clusters"]
+
+metadata <- data.frame(orig.ident, nCounts,nFeatures, percent.mt, seurat_clusters)
+rownames(metadata) <- cell_barcodes
+colnames(metadata) <- c("orig.ident", "nCount_RNA","nFeature_RNA","percent.mt","seurat_clusters")
+metadata
+```
+
+#Now try creating Seurat object
+```{r}
+ff_breast_cancer_seurat <- CreateSeuratObject(X,
+  project = "CreateSeuratObject",
+  assay = "RNA",
+  names.field = 1,
+  meta.data = metadata,
+)
+
+#add active assay
+ff_breast_cancer_seurat@active.assay <- c("RNA")
+```
+
+#get spatial coordinates
+```{r}
+#load in tissue position list
+tissue_coordinates <- read.csv('V1_Breast_Cancer_Block_A_Section_1/spatial/tissue_positions_list.csv',header=FALSE)
+colnames(tissue_coordinates) <- c("barcode","tissue","row","col","imagerow","imagecol")
+tissue_coordinates
+
+##sort tissue coordinates df by obs barcodes
+sorted_barcodes <- obs$X
+
+tissue_coordinates <- tissue_coordinates[match(sorted_barcodes, tissue_coordinates$barcode), ]
+rownames(tissue_coordinates) <- tissue_coordinates$barcode
+tissue_coordinates = subset(tissue_coordinates, select = -c(barcode)) 
+tissue_coordinates
+
+#create scale factors object to add
+spot = 177.4817017129342
+fiducial = 286.70121045935537
+hires = 0.08250825
+lowres = 0.024752475
+scale_factors <- Seurat::scalefactors(spot=spot,fiducial = fiducial,hires = hires,lowres = lowres)
+
+##add coordinates and name of assay
+ff_breast_cancer_seurat@images$slice.1 = new(Class="VisiumV1",assay="RNA",key="image_",coordinates=tissue_coordinates,scale.factors=scale_factors)
+ff_breast_cancer_seurat@images$slice.1@assay <- c("RNA")
+
+```
+
+##Load in same data from scanpy X file as scaled data
+```{r}
+ff_breast_cancer_seurat@assays$RNA@scale.data <- X 
+```
+
+##Extract HVGs from var file
+```{r}
+#select genes only where highly_variable is true
+hvg_df <- subset(var, highly_variable == 'True')
+
+#Now want to get this list of indices and add V infront of them
+hvg_indices <- as.integer(rownames(hvg_df))
+hvg_indices
+```
+
+```{r}
+
+#replace each value in vector
+for (i in hvg_indices){
+  pos <- match(i,hvg_indices)
+  print(hvg_indices[1])
+  print(hvg_indices[pos])
+  new_x <- gsub("^(.{0})(.*)$","\\V\\2",i)
+  hvg_indices[pos] <- new_x
+}
+
+hvg_indices
+```
+
+##REplace variable features with one I've created
+```{r}
+ff_breast_cancer_seurat@assays$RNA@var.features <- hvg_indices
+
+```
+
+##Try finding spatially variable genes as is
+```{r}
+ff_breast_cancer_seurat <- FindSpatiallyVariableFeatures(ff_breast_cancer_seurat, assay = "RNA", features = VariableFeatures(ff_breast_cancer_seurat)[1:1000],
+    selection.method = "markvariogram")
+top.features <- head(SpatiallyVariableFeatures(ff_breast_cancer_seurat, selection.method = "markvariogram"), 1000)
+saveRDS(top.features,"top_svgs_seurat_ff_breast_cancer.RDS")
+```
+
+##map genes back
+#Get list of gene names
+```{r}
+library(stringr)
+
+svgs_gene_names_indices <- c()
+
+for (i in top.features){
+  gene_name <- str_replace_all(i, "V", "")
+  svgs_gene_names_indices <- append(svgs_gene_names_indices,gene_name)
+}
+
+svgs_gene_names_indices
+```
+
+#Extract the gene names from VAR by indices
+```{r}
+var_subset <- var[svgs_gene_names_indices, 1]
+var_subset <- as.data.frame(var_subset)
+write.csv(var_subset,'ff_breast_cancer_seurat_svgs_gene_names.csv')
+```
