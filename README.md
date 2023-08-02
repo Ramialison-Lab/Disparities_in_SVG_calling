@@ -23,4 +23,6 @@ Links to the raw data used for the study can be found at the following links:
 * [FFPE Adenocarcinoma Prostate](https://www.10xgenomics.com/resources/datasets/human-prostate-cancer-adenocarcinoma-with-invasive-carcinoma-ffpe-1-standard-1-3-0)
 * [FFPE Invasive Ductal Carcinoma Breast Tissue](https://www.10xgenomics.com/resources/datasets/human-breast-cancer-ductal-carcinoma-in-situ-invasive-carcinoma-ffpe-1-standard-1-3-0)
 
+[![DOI](https://zenodo.org/badge/555118633.svg)](https://zenodo.org/badge/latestdoi/555118633)
+
 
